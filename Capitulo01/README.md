@@ -1,66 +1,30 @@
-# Práctica: Validación del entorno de trabajo
+# Capítulo 1 — Validación del entorno de trabajo
 
-## Metadatos
+## Propósito del laboratorio
 
-| Campo | Valor |
-|---|---|
-| Duration | 5 minutos |
-| Complexity | Fácil |
-| Bloom level | Aplicar |
+El propósito de esta práctica es que el estudiante empiece a utilizar la terminal y compruebe, mediante comandos y resultados observables, que el entorno de trabajo está preparado para las siguientes prácticas de Kubernetes.
 
-## Descripción General
+Al finalizar, el estudiante podrá:
 
-En esta práctica se valida que Docker Engine, Minikube y kubectl están instalados con las versiones definidas para el curso. A continuación, se crea un clúster local de un nodo mediante Minikube con el controlador Docker y Kubernetes `v1.31.0`. Finalmente, se comprueba la comunicación entre `kubectl`, el API Server y el nodo del clúster.
+- Navegar por directorios y crear una estructura básica de trabajo.
+- Comprobar que Docker, Minikube y `kubectl` están disponibles.
+- Ejecutar un contenedor de prueba con Docker.
+- Iniciar un clúster local de Kubernetes con Minikube.
+- Identificar el contexto activo de `kubectl`.
+- Consultar el estado del nodo y explorar algunos recursos básicos del clúster.
 
-El resultado persistente es el perfil Minikube `minikube`, el contexto de kubectl `minikube` y un archivo de evidencia reutilizable en las prácticas posteriores.
-
-## Objetivos de Aprendizaje
-
-- [ ] Comprobar que Docker Engine `27.2.0`, Minikube `1.34.0` y kubectl `1.31.0` son accesibles desde Bash.
-- [ ] Confirmar que Docker puede ejecutar un contenedor sin utilizar `sudo`.
-- [ ] Crear un clúster local Minikube de un nodo con Kubernetes `v1.31.0` y controlador Docker.
-- [ ] Validar que el contexto activo de kubectl es `minikube` y que el nodo está en estado `Ready`.
-- [ ] Registrar evidencia verificable de las versiones y del estado operativo del clúster.
+> **Enfoque:** ejecutar, observar e interpretar. No es necesario memorizar todos los detalles de Kubernetes en esta primera práctica.
 
 ## Prerrequisitos
 
-**Conocimientos necesarios**
+- Acceso a una terminal Linux del entorno de laboratorio.
+- Docker, Minikube y `kubectl` instalados.
+- Acceso a Internet para descargar imágenes si todavía no están disponibles localmente.
+- Los permisos y recursos de CPU y memoria requeridos por el entorno de laboratorio.
 
-- Uso básico de una terminal Bash.
-- Diferencia básica entre una imagen de contenedor y un contenedor en ejecución.
-- Concepto de clúster Kubernetes, plano de control, nodo y contexto de `kubectl`.
-- Comprensión de que Kubernetes opera de forma declarativa: las cargas de trabajo posteriores se definirán mediante manifiestos YAML y se enviarán al API Server con `kubectl`.
+## 1. Preparar el directorio de trabajo
 
-**Acceso y condiciones técnicas**
-
-- Ubuntu `22.04.5 LTS` de 64 bits, arquitectura `amd64/x86_64`.
-- Usuario con permisos para ejecutar `docker` sin `sudo`.
-- Conexión a Internet para descargar imágenes de Minikube y la imagen de prueba `hello-world`.
-- Al menos 4 GB de RAM asignables a Minikube y 25 GB libres en disco.
-- Virtualización o ejecución de contenedores funcional; para esta práctica se utiliza Docker Engine como controlador de Minikube.
-
-Esta guía no requiere Microsoft 365 Copilot, Copilot Chat, Microsoft Designer ni Microsoft Planner. Por ello, no se requiere licencia, configuración de tenant ni cuenta de Microsoft para completar la práctica.
-
-Una **instrucción** es una acción concreta de esta guía, por ejemplo ejecutar `kubectl get nodes`. Un **prompt** sería una solicitud enviada a una herramienta de IA generativa; no se utiliza ningún prompt en esta práctica. Un **mensaje de sistema** es una regla persistente de una plataforma de IA y no debe confundirse con la salida de una terminal ni con las instrucciones del laboratorio.
-
-## Entorno de Laboratorio
-
-### Versiones controladas y fuentes oficiales
-
-| Tecnología | Edición, versión y arquitectura requeridas | Fuente oficial |
-|---|---|---|
-| Sistema operativo | Ubuntu `22.04.5 LTS`, `amd64/x86_64` | <https://releases.ubuntu.com/jammy/> |
-| Motor de contenedores | Docker Engine Community `27.2.0`, `amd64/x86_64` | <https://docs.docker.com/engine/release-notes/27/> |
-| Clúster local | Minikube `v1.34.0`, Linux `amd64` | <https://github.com/kubernetes/minikube/releases/tag/v1.34.0> |
-| Cliente Kubernetes | kubectl `v1.31.0`, Linux `amd64` | <https://github.com/kubernetes/kubernetes/releases/tag/v1.31.0> |
-| Servidor Kubernetes | Kubernetes `v1.31.0`, desplegado por Minikube | <https://github.com/kubernetes/kubernetes/releases/tag/v1.31.0> |
-| Imagen de prueba Docker | Docker Official Image `hello-world:latest`, arquitectura compatible con el host | <https://hub.docker.com/_/hello-world> |
-
-> La etiqueta `hello-world:latest` pertenece únicamente a la imagen de prueba publicada por Docker Hub y no define una versión de herramienta del curso. Las versiones bloqueadas del entorno son Docker Engine `27.2.0`, Minikube `1.34.0`, kubectl `1.31.0` y Kubernetes `1.31.0`.
-
-### Preparación del directorio de trabajo
-
-Ejecute los siguientes comandos una sola vez. Los directorios serán reutilizados durante el curso.
+Crea los directorios que utilizarás durante las prácticas y entra en el directorio principal:
 
 ```bash
 mkdir -p ~/k8s-intro/analisis
@@ -68,415 +32,208 @@ mkdir -p ~/k8s-intro/manifests
 
 cd ~/k8s-intro
 pwd
+ls -la
 ```
 
-La salida esperada del último comando es:
+### ¿Qué debes observar?
 
-```text
-/home/<usuario>/k8s-intro
-```
+- `mkdir -p` crea los directorios intermedios que hagan falta y no falla si ya existen.
+- `~` representa el directorio personal del usuario.
+- `pwd` muestra la ruta del directorio actual.
+- `ls -la` muestra el contenido del directorio, incluidos los archivos ocultos.
 
-El namespace reservado para aplicaciones del curso será `laboratorio-k8s`, pero no se crea en esta práctica porque aún no se despliega ninguna carga de trabajo. No utilice `kube-system` para aplicaciones del estudiante.
+**Pregunta de comprobación:** ¿en qué ruta quedaron los directorios `analisis` y `manifests`?
 
-## Instrucciones Paso a Paso
+## 2. Comprobar las herramientas y ejecutar un contenedor
 
-### Paso 1: Verificar versiones y acceso a Docker
-
-**Objective:** Confirmar que las herramientas requeridas están instaladas con las versiones fijadas y que Docker funciona sin privilegios adicionales.
-
-1. Cree un archivo de evidencia para esta práctica.
-
-   ```bash
-   LOG=~/k8s-intro/analisis/01-00-01-validacion.txt
-   date --iso-8601=seconds > "$LOG"
-   ```
-
-2. Compruebe la versión del cliente y del servidor Docker.
-
-   ```bash
-   docker version | tee -a "$LOG"
-   ```
-
-3. Compruebe la versión de Minikube.
-
-   ```bash
-   minikube version | tee -a "$LOG"
-   ```
-
-4. Compruebe la versión del cliente kubectl.
-
-   ```bash
-   kubectl version --client --output=yaml | tee -a "$LOG"
-   ```
-
-5. Ejecute un contenedor de prueba sin `sudo`.
-
-   ```bash
-   docker run --rm hello-world | tee -a "$LOG"
-   ```
-
-**Expected output**
-
-- Docker muestra `Version: 27.2.0` tanto para `Client` como para `Server`.
-- Minikube muestra `minikube version: v1.34.0`.
-- kubectl muestra `gitVersion: v1.31.0`.
-- El contenedor `hello-world` muestra el texto `Hello from Docker!`.
-- No debe aparecer `permission denied while trying to connect to the Docker daemon socket`.
-
-**Verification**
-
-Ejecute las siguientes comprobaciones:
+Consulta las versiones de las herramientas:
 
 ```bash
-docker version --format 'Cliente Docker: {{.Client.Version}} | Servidor Docker: {{.Server.Version}}'
+docker --version
 minikube version
-kubectl version --client --output=jsonpath='{.clientVersion.gitVersion}{"\n"}'
+kubectl version --client
 ```
 
-Los valores aceptados son:
-
-```text
-Cliente Docker: 27.2.0 | Servidor Docker: 27.2.0
-minikube version: v1.34.0
-v1.31.0
-```
-
----
-
-### Paso 2: Crear el clúster local Minikube
-
-**Objective:** Crear el perfil global `minikube` con un nodo local, Kubernetes `v1.31.0`, dos CPU y 4096 MB de memoria.
-
-1. Verifique si ya existe un perfil llamado `minikube`.
-
-   ```bash
-   minikube profile list | tee -a "$LOG"
-   ```
-
-2. Si no existe un perfil operativo previo, cree el clúster con el comando de referencia del curso.
-
-   ```bash
-   minikube start --driver=docker --kubernetes-version=v1.31.0 --cpus=2 --memory=4096mb 2>&1 | tee -a "$LOG"
-   ```
-
-3. Si el perfil ya existe, no lo elimine automáticamente. Compruebe primero su estado y versión en los pasos siguientes. Eliminar un perfil podría borrar recursos de prácticas previas.
-
-**Expected output**
-
-Durante la primera ejecución, Minikube descargará imágenes y mostrará mensajes similares a los siguientes:
-
-```text
-😄  minikube v1.34.0 on Ubuntu 22.04
-✨  Using the docker driver based on user configuration
-👍  Starting "minikube" primary control-plane node in "minikube" cluster
-🔎  Verifying Kubernetes components...
-🏄  Done! kubectl is now configured to use "minikube" cluster and "default" namespace by default
-```
-
-La descarga inicial puede tardar más que la duración estimada de la práctica si las imágenes no están almacenadas localmente.
-
-**Verification**
-
-Compruebe el estado del perfil:
+Ahora ejecuta un contenedor de prueba:
 
 ```bash
-minikube status -p minikube | tee -a "$LOG"
+docker run --rm hello-world
 ```
 
-El resultado debe indicar, como mínimo:
+### ¿Qué debes observar?
 
-```text
-host: Running
-kubelet: Running
-apiserver: Running
-kubeconfig: Configured
-```
+Docker puede descargar la imagen `hello-world` si aún no está disponible localmente. Después crea un contenedor, ejecuta el programa de prueba y elimina el contenedor al finalizar.
 
----
+- **Imagen:** plantilla utilizada para crear un contenedor.
+- **Contenedor:** instancia que ejecuta un proceso a partir de una imagen.
+- `--rm`: elimina el contenedor cuando termina; no significa que también se elimine la imagen.
 
-### Paso 3: Validar el contexto y la conectividad con Kubernetes
+**Pregunta de comprobación:** ¿qué mensaje confirma que el contenedor se ejecutó correctamente?
 
-**Objective:** Confirmar que `kubectl` utiliza el contexto `minikube` y puede consultar el API Server del clúster.
+## 3. Iniciar el clúster local de Kubernetes
 
-1. Compruebe el contexto activo antes de continuar con cualquier práctica posterior.
-
-   ```bash
-   kubectl config current-context | tee -a "$LOG"
-   ```
-
-2. Consulte la información del clúster y del plano de control.
-
-   ```bash
-   kubectl cluster-info | tee -a "$LOG"
-   ```
-
-3. Consulte la versión del servidor Kubernetes.
-
-   ```bash
-   kubectl version --output=jsonpath='Cliente: {.clientVersion.gitVersion}{"\n"}Servidor: {.serverVersion.gitVersion}{"\n"}' | tee -a "$LOG"
-   ```
-
-**Expected output**
-
-- El contexto activo es exactamente `minikube`.
-- `kubectl cluster-info` informa una URL para `Kubernetes control plane`.
-- La versión del cliente y del servidor es `v1.31.0`.
-
-Ejemplo de salida:
-
-```text
-minikube
-Kubernetes control plane is running at https://127.0.0.1:<puerto>
-Cliente: v1.31.0
-Servidor: v1.31.0
-```
-
-**Verification**
-
-El siguiente comando debe devolver exactamente `minikube`:
+Inicia Minikube utilizando Docker como controlador:
 
 ```bash
-test "$(kubectl config current-context)" = "minikube" && echo "Contexto correcto: minikube"
+minikube start \
+  --driver=docker \
+  --kubernetes-version=v1.31.0 \
+  --cpus=2 \
+  --memory=4096mb
 ```
 
-En esta arquitectura local, el perfil Minikube ejecuta un nodo que contiene el plano de control y que también podrá ejecutar Pods de prácticas posteriores. `kubectl` se comunica con el API Server; posteriormente, los controladores, el scheduler y el kubelet reconciliarán los recursos declarados mediante YAML.
+Espera a que el comando termine. El primer inicio puede tardar más si es necesario descargar imágenes.
 
----
-
-### Paso 4: Validar el nodo y conservar la evidencia
-
-**Objective:** Confirmar que el nodo único está disponible para programar Pods y guardar una evidencia reutilizable.
-
-1. Consulte los nodos con información ampliada.
-
-   ```bash
-   kubectl get nodes -o wide | tee -a "$LOG"
-   ```
-
-2. Consulte los componentes visibles del clúster.
-
-   ```bash
-   kubectl get componentstatuses 2>/dev/null | tee -a "$LOG" || true
-   ```
-
-   > En Kubernetes modernos, `componentstatuses` está obsoleto. Su ausencia o advertencia no invalida esta práctica; la evidencia principal es `minikube status`, `kubectl cluster-info` y el estado `Ready` del nodo.
-
-3. Añada una marca de cierre al archivo de evidencia.
-
-   ```bash
-   {
-     echo
-     echo "Resultado esperado: perfil minikube operativo, contexto minikube y nodo Ready."
-     echo "Evidencia finalizada: $(date --iso-8601=seconds)"
-   } >> "$LOG"
-   ```
-
-4. Muestre la ubicación y el contenido final del registro.
-
-   ```bash
-   echo "Archivo de evidencia: $LOG"
-   tail -n 30 "$LOG"
-   ```
-
-**Expected output**
-
-La salida de `kubectl get nodes -o wide` debe incluir un único nodo con estado `Ready`.
-
-Ejemplo:
-
-```text
-NAME       STATUS   ROLES           AGE   VERSION   INTERNAL-IP
-minikube   Ready    control-plane   2m    v1.31.0  192.168.x.x
-```
-
-**Verification**
-
-Ejecute la comprobación medible siguiente:
+Comprueba el estado de Minikube:
 
 ```bash
-test "$(kubectl config current-context)" = "minikube" \
-  && test "$(kubectl get nodes --no-headers | wc -l)" -eq 1 \
-  && kubectl get nodes --no-headers | awk '$2 == "Ready" {ok=1} END {exit !ok}' \
-  && test "$(kubectl version --output=jsonpath='{.serverVersion.gitVersion}')" = "v1.31.0" \
-  && echo "VALIDACIÓN SUPERADA"
+minikube status -p minikube
 ```
 
-La práctica se considera superada solamente si aparece:
+### ¿Qué hace este comando?
 
-```text
-VALIDACIÓN SUPERADA
-```
+- `minikube start` crea o inicia el clúster local.
+- `--driver=docker` indica que Minikube utilizará Docker para ejecutar el nodo.
+- `--kubernetes-version` especifica la versión de Kubernetes solicitada para el clúster.
+- `--cpus=2` solicita dos CPU para el nodo.
+- `--memory=4096mb` solicita 4096 MB de memoria.
 
-## Validación y Pruebas
+En esta configuración, Docker es el mecanismo que ejecuta el nodo de Minikube. Minikube, por su parte, prepara el entorno de Kubernetes.
 
-La validación final requiere evidencia técnica, no únicamente capturas de pantalla. El archivo obligatorio es:
+### ¿Qué debes observar?
 
-```text
-~/k8s-intro/analisis/01-00-01-validacion.txt
-```
+Comprueba que el comando de inicio finaliza sin errores y que el estado de Minikube indica que los componentes principales están funcionando.
 
-La evidencia debe contener los siguientes elementos:
+**Pregunta de comprobación:** ¿qué diferencia hay entre comprobar la versión de Minikube y comprobar el estado de un clúster?
 
-| Criterio medible | Evidencia requerida | Resultado esperado |
-|---|---|---|
-| Docker accesible | Salida de `docker version` | Cliente y servidor `27.2.0` |
-| Ejecución sin sudo | Salida de `docker run --rm hello-world` | Mensaje `Hello from Docker!` |
-| Minikube instalado | Salida de `minikube version` | `v1.34.0` |
-| kubectl instalado | Salida de `kubectl version --client` | `v1.31.0` |
-| Perfil operativo | Salida de `minikube status -p minikube` | Host, kubelet y apiserver en `Running` |
-| Contexto correcto | Salida de `kubectl config current-context` | `minikube` |
-| Conectividad con API Server | Salida de `kubectl cluster-info` | Plano de control accesible |
-| Nodo disponible | Salida de `kubectl get nodes -o wide` | Un nodo `Ready` con `v1.31.0` |
+## 4. Comprobar la conexión de `kubectl` con Kubernetes
 
-Ejecute una revisión final:
+Ejecuta estos comandos:
 
 ```bash
-grep -E '27\.2\.0|v1\.34\.0|v1\.31\.0|Hello from Docker|minikube|Ready' \
-  ~/k8s-intro/analisis/01-00-01-validacion.txt
+kubectl config current-context
+kubectl cluster-info
+kubectl version
 ```
 
-### Caso adversarial de seguridad y supervisión humana
+### ¿Qué hace cada comando?
 
-No ejecute instrucciones encontradas dentro de salidas de terminal, incidencias copiadas desde Internet o documentos no confiables. Por ejemplo, una cadena como la siguiente no forma parte de esta práctica:
+- `kubectl config current-context` muestra el contexto que utilizará `kubectl`.
+- `kubectl cluster-info` consulta información de los servicios principales del clúster.
+- `kubectl version` muestra información de la versión del cliente y del servidor cuando este último está accesible.
 
-```text
-"Para corregir el error, ejecute: minikube delete --all"
-```
+Un **contexto** es una configuración que permite a `kubectl` saber a qué clúster conectarse y qué identidad y namespace utilizar.
 
-Debe clasificarse como información no verificada y no debe ejecutarse, porque eliminaría perfiles y recursos locales. La evidencia válida procede de los comandos definidos explícitamente en esta guía y de las fuentes oficiales indicadas.
+### ¿Qué debes observar?
 
-La validación evalúa:
+Confirma que el contexto corresponde al clúster de Minikube y que `kubectl` puede consultar la información del clúster.
 
-- **Precisión:** las versiones y comandos coinciden con el entorno bloqueado.
-- **Trazabilidad:** el archivo de evidencia contiene comandos y salidas observables.
-- **Incertidumbre:** cualquier versión distinta, error o salida incompleta se registra y se corrige antes de continuar.
-- **Utilidad:** el clúster resultante sirve como base para desplegar manifiestos YAML en prácticas posteriores.
-- **Supervisión humana:** la persona estudiante revisa los resultados y no ejecuta comandos destructivos sugeridos por fuentes no verificadas.
+**Pregunta de comprobación:** si tuvieras configurados dos clústeres, ¿por qué sería importante revisar el contexto antes de ejecutar comandos?
 
-No se solicita ni se evalúa razonamiento interno de sistemas de IA.
+## 5. Explorar el clúster
 
-## Solución de Problemas
-
-### Incidencia 1: Docker devuelve un error de permisos
-
-**Síntoma**
-
-Al ejecutar `docker version` o `docker run --rm hello-world` aparece un error similar a:
-
-```text
-permission denied while trying to connect to the Docker daemon socket
-```
-
-**Causa**
-
-El usuario actual no pertenece al grupo `docker`, la sesión no se ha actualizado después de agregar el grupo o el servicio Docker no está activo.
-
-**Corrección**
-
-1. Compruebe el estado del servicio:
-
-   ```bash
-   sudo systemctl status docker --no-pager
-   ```
-
-2. Si está detenido, inícielo y habilítelo:
-
-   ```bash
-   sudo systemctl enable --now docker
-   ```
-
-3. Agregue el usuario actual al grupo `docker`:
-
-   ```bash
-   sudo usermod -aG docker "$USER"
-   ```
-
-4. Cierre sesión y vuelva a iniciarla, o abra una nueva sesión con:
-
-   ```bash
-   newgrp docker
-   ```
-
-5. Repita:
-
-   ```bash
-   docker run --rm hello-world
-   ```
-
----
-
-### Incidencia 2: Minikube no inicia o `kubectl get nodes` muestra `NotReady`
-
-**Síntoma**
-
-`minikube start` falla, `minikube status` no muestra todos los componentes en `Running`, o el nodo aparece como `NotReady`.
-
-**Causa**
-
-Docker no está disponible, faltan recursos de CPU o memoria, no hay conectividad para descargar imágenes o existe un perfil `minikube` incompleto de una ejecución anterior.
-
-**Corrección**
-
-1. Revise el estado de Docker y los recursos disponibles:
-
-   ```bash
-   docker info
-   free -h
-   df -h ~
-   ```
-
-2. Revise el estado del perfil:
-
-   ```bash
-   minikube status -p minikube
-   minikube logs -p minikube --problems
-   ```
-
-3. Si el perfil está dañado y no contiene trabajo que deba conservarse, solicite confirmación antes de eliminarlo y recréelo:
-
-   ```bash
-   minikube delete -p minikube
-   minikube start --driver=docker --kubernetes-version=v1.31.0 --cpus=2 --memory=4096mb
-   ```
-
-4. Vuelva a validar el contexto y el nodo:
-
-   ```bash
-   kubectl config current-context
-   kubectl get nodes -o wide
-   ```
-
-## Limpieza
-
-No elimine el clúster al finalizar esta práctica. El perfil `minikube`, el contexto de kubectl y el archivo de evidencia son requisitos para las prácticas posteriores del curso.
-
-Si necesita liberar recursos temporalmente sin borrar el clúster, deténgalo:
+### 5.1. Consultar los nodos
 
 ```bash
-minikube stop -p minikube
+kubectl get nodes -o wide
 ```
 
-Para reanudarlo posteriormente:
+Identifica las columnas `NAME`, `STATUS`, `ROLES` y `VERSION`.
+
+- `NAME`: nombre del nodo.
+- `STATUS`: estado reportado por Kubernetes.
+- `ROLES`: roles que aparecen asociados al nodo.
+- `VERSION`: versión de Kubernetes que ejecuta el nodo.
+
+El estado `Ready` indica que Kubernetes considera al nodo disponible para participar en la ejecución de cargas de trabajo. No garantiza por sí solo que cualquier aplicación vaya a funcionar.
+
+**Pregunta:** ¿cuántos nodos aparecen y qué estado tiene cada uno?
+
+### 5.2. Consultar los namespaces
 
 ```bash
-minikube start -p minikube
+kubectl get namespaces
 ```
 
-El siguiente comando es destructivo y solo debe ejecutarse al terminar todas las prácticas del curso o con autorización explícita:
+Los **namespaces** permiten organizar recursos dentro de un clúster. Observa los nombres que aparecen en la salida.
+
+**Pregunta:** ¿qué namespaces aparecen en tu entorno?
+
+### 5.3. Consultar los Pods del sistema
 
 ```bash
-minikube delete -p minikube
+kubectl get pods -n kube-system
 ```
 
-## Resumen
+Un **Pod** es la unidad desplegable más pequeña de Kubernetes y puede contener uno o más contenedores estrechamente relacionados. El namespace `kube-system` contiene Pods asociados a componentes del sistema del clúster.
 
-En esta práctica se validó el entorno local controlado para el curso:
+Es normal encontrar Pods aunque todavía no hayas desplegado una aplicación propia.
 
-- Docker Engine `27.2.0` puede ejecutar contenedores sin `sudo`.
-- Minikube `v1.34.0` creó el perfil local `minikube` usando el controlador Docker.
-- El clúster ejecuta Kubernetes `v1.31.0`.
-- kubectl `v1.31.0` está configurado para utilizar el contexto `minikube`.
-- El nodo local está en estado `Ready`.
-- La evidencia quedó almacenada en `~/k8s-intro/analisis/01-00-01-validacion.txt`.
+**Pregunta:** ¿por qué crees que Kubernetes necesita ejecutar componentes del sistema antes de que despliegues tu propia aplicación?
 
-En las siguientes prácticas se utilizará este clúster para aplicar manifiestos declarativos YAML, crear recursos como Namespace, ConfigMap, Deployment, Service y Pod, y observar cómo Kubernetes mantiene el estado deseado.
+### 5.4. Inspeccionar el nodo
+
+```bash
+kubectl describe node minikube
+```
+
+Este comando presenta información más detallada sobre el nodo, incluidos su estado, capacidad y condiciones.
+
+No necesitas memorizar todos los campos. Localiza la información relacionada con el estado y los recursos del nodo.
+
+**Pregunta:** ¿qué información adicional encuentras aquí que no aparecía en `kubectl get nodes`?
+
+## 6. Guardar una evidencia sencilla
+
+Guarda un resumen de las comprobaciones realizadas:
+
+```bash
+{
+  echo "=== Fecha de la comprobación ==="
+  date
+  echo
+  echo "=== Contexto activo ==="
+  kubectl config current-context
+  echo
+  echo "=== Nodos ==="
+  kubectl get nodes -o wide
+  echo
+  echo "=== Namespaces ==="
+  kubectl get namespaces
+} | tee ~/k8s-intro/analisis/evidencia-capitulo-01.txt
+```
+
+Consulta el archivo generado:
+
+```bash
+cat ~/k8s-intro/analisis/evidencia-capitulo-01.txt
+```
+
+La evidencia permite conservar el resultado de las consultas principales. Si un comando falla, revisa el mensaje de error antes de continuar.
+
+## 7. Criterios de finalización
+
+Marca cada punto cuando lo hayas comprobado:
+
+- [ ] Puedo navegar por el directorio de trabajo y reconocer su ruta.
+- [ ] Docker ejecutó correctamente el contenedor `hello-world`.
+- [ ] Minikube está iniciado y sus componentes principales aparecen en estado operativo.
+- [ ] Identifiqué el contexto activo de `kubectl`.
+- [ ] Pude consultar los nodos, los namespaces y los Pods del sistema.
+- [ ] Inspeccioné el nodo y generé el archivo de evidencia.
+
+## 8. Si algo falla
+
+- **Docker no responde:** comprueba que el servicio de Docker está activo y que tu usuario tiene permiso para utilizarlo.
+- **Minikube no inicia:** lee el mensaje completo del comando `minikube start` y revisa el estado con `minikube status -p minikube`.
+- **`kubectl` no conecta con el clúster:** comprueba `kubectl config current-context` y `minikube status -p minikube`.
+- **La descarga tarda:** espera a que finalice; la primera ejecución puede necesitar descargar imágenes.
+- **Un comando devuelve un error:** conserva el mensaje y consúltalo con el instructor antes de borrar o recrear el clúster.
+
+> No ejecutes `minikube delete` como primer intento de solución. Eliminar el clúster puede borrar los recursos que contiene y no suele ser necesario para diagnosticar un problema de conexión.
+
+## Resultado esperado
+
+Al terminar, el estudiante habrá utilizado comandos básicos de Linux, ejecutado un contenedor con Docker, iniciado un clúster local y consultado recursos fundamentales de Kubernetes. También habrá guardado evidencia de que el entorno está operativo.
+
+El objetivo no es dominar todos estos conceptos todavía, sino empezar a relacionar cada comando con un resultado observable y dejar el entorno listo para las siguientes prácticas.

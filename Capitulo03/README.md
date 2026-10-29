@@ -1,448 +1,516 @@
-# Práctica: Reconocimiento de necesidades de orquestación
+# Capítulo 3 — Reconocimiento de necesidades de orquestación
 
-## Metadatos
+## Propósito del laboratorio
 
-| Duration | Complexity | Bloom level |
-|---|---|---|
-| 10 minutos | Media | Analizar |
+Relacionar los problemas operativos de una aplicación monolítica con capacidades concretas de Kubernetes. Partirás del análisis del capítulo 2, compararás la ejecución manual de un contenedor con la gestión declarativa y construirás una matriz que asocia cada necesidad con el recurso de Kubernetes que ayuda a resolverla, y también con lo que ese recurso **no** resuelve.
 
-## Descripción General
+La práctica es de análisis y uso de la terminal. **No se desplegará ninguna aplicación.** Usarás:
 
-En esta práctica analizarás los problemas operativos identificados previamente en una aplicación monolítica y los relacionarás con capacidades concretas de Kubernetes. Crearás una matriz conceptual que diferencia la ejecución manual de contenedores de la gestión declarativa mediante recursos como `Deployment`, `Pod`, `Service`, `ConfigMap`, `Secret`, `Namespace`, labels y selectors. También identificarás límites importantes: Kubernetes coordina la ejecución de aplicaciones, pero no corrige por sí solo un diseño interno deficiente ni sustituye una estrategia de datos.
+- `kubectl create ... --dry-run=client`, que genera el YAML de un recurso **sin enviarlo al clúster**.
+- `kubectl explain` y `kubectl api-resources`, que consultan la API de Kubernetes sin modificarla.
 
-## Objetivos de Aprendizaje
+Los hallazgos se guardarán en `~/k8s-intro/analisis/necesidades-orquestacion.md` para reutilizarlos en el capítulo 4.
 
-- [ ] Relacionar problemas de una aplicación monolítica con necesidades de orquestación.
-- [ ] Diferenciar la ejecución manual de un contenedor con `docker run` de la gestión declarativa en Kubernetes.
-- [ ] Asociar necesidades operativas básicas con recursos Kubernetes adecuados.
-- [ ] Identificar necesidades que no deben resolverse exclusivamente mediante Kubernetes.
-- [ ] Crear una evidencia trazable en `~/k8s-intro/analisis/necesidades-orquestacion.md`.
+Al finalizar, podrás:
+
+- Identificar qué debe hacer manualmente un operador que ejecuta contenedores con `docker run`.
+- Leer un manifiesto de Kubernetes y localizar campos clave: réplicas, imagen, labels, selector y puertos.
+- Explicar cómo un `Service` encuentra los Pods mediante labels y selectors.
+- Diferenciar `ConfigMap` y `Secret`, y explicar por qué base64 no es cifrado.
+- Asociar cada necesidad de la aplicación con el recurso de Kubernetes adecuado.
+- Reconocer qué problemas no se resuelven solo con Kubernetes.
+- Documentar el resultado con evidencia que puedas verificar.
+
+**Duración orientativa:** 25–30 minutos, dependiendo del tiempo de análisis y discusión.
 
 ## Prerrequisitos
 
-**Conocimientos requeridos:**
+- Haber completado los laboratorios de los capítulos 1 y 2.
+- Tener el archivo `~/k8s-intro/analisis/monolito.md` creado en el capítulo 2.
+- Tener acceso a una terminal Bash y a `kubectl` con el contexto `minikube`.
+- Conocer a nivel introductorio los conceptos `Pod`, `Deployment`, `Service`, `ConfigMap`, `Secret`, `Namespace`, labels y selectors. Se reforzarán durante la práctica.
 
-- Diferencia entre una imagen de contenedor inmutable y un contenedor en ejecución.
-- Uso básico de terminal Bash, rutas, archivos Markdown y comandos `cat`, `mkdir` y `grep`.
-- Comprensión básica de procesos, puertos, configuración y archivos en Linux.
-- Conocimiento introductorio de `Pod`, `Deployment`, `Service`, `ConfigMap`, `Secret`, `Namespace`, labels y selectors.
+En esta práctica no necesitas crear Pods, Deployments, Services ni otros recursos en el clúster.
 
-**Acceso requerido:**
+## 1. Comprobar el entorno y recuperar el análisis previo
 
-- Práctica 01-00-01 completada y acceso funcional a `kubectl`.
-- Práctica 02-00-01 completada con el archivo `~/k8s-intro/analisis/monolito.md`.
-- Perfil de Minikube `minikube` iniciado y contexto activo `minikube`.
-- Permiso de escritura en `~/k8s-intro/analisis`.
-
-## Entorno de Laboratorio
-
-| Componente | Versión de referencia y arquitectura | Fuente oficial |
-|---|---|---|
-| Sistema operativo | Ubuntu 22.04.5 LTS, `amd64` | <https://releases.ubuntu.com/22.04/> |
-| Docker Engine | Docker Engine 27.2.0, `amd64` | <https://docs.docker.com/engine/release-notes/27.2/> |
-| Minikube | Minikube 1.34.0, Linux `amd64` | <https://github.com/kubernetes/minikube/releases/tag/v1.34.0> |
-| kubectl | Kubernetes `kubectl` v1.31.0, Linux `amd64` | <https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/> |
-| Clúster | Kubernetes v1.31.0, perfil `minikube`, controlador Docker Engine 27.2.0 `amd64` | <https://github.com/kubernetes/kubernetes/releases/tag/v1.31.0> |
-| Shell | GNU Bash 5.1.16, `amd64` | <https://www.gnu.org/software/bash/> |
-
-Ejecuta la siguiente preparación. No se desplegarán aplicaciones nuevas en esta práctica.
+Verifica que el clúster sigue accesible:
 
 ```bash
-mkdir -p ~/k8s-intro/analisis ~/k8s-intro/manifests
-
 kubectl config current-context
 minikube status -p minikube
-test -f ~/k8s-intro/analisis/monolito.md && echo "monolito.md disponible"
 ```
 
-El contexto esperado es `minikube`. El namespace reservado para prácticas posteriores es `laboratorio-k8s`; no utilices `kube-system` para aplicaciones del curso.
+El contexto esperado es `minikube`. Los componentes principales de Minikube deben estar en estado operativo.
 
-## Instrucciones Paso a Paso
-
-### Paso 1: Comprobar las evidencias y el acceso al clúster
-
-**Objetivo:** Confirmar que el análisis del monolito está disponible y que el contexto de Kubernetes es el esperado.
-
-**Instrucciones:**
-
-1. Verifica el contexto activo de `kubectl`.
-
-   ```bash
-   kubectl config current-context
-   ```
-
-2. Comprueba el estado del perfil de Minikube.
-
-   ```bash
-   minikube status -p minikube
-   ```
-
-3. Revisa que existe el análisis elaborado en la práctica anterior.
-
-   ```bash
-   ls -l ~/k8s-intro/analisis/monolito.md
-   ```
-
-4. Lee el archivo para recuperar problemas concretos de la aplicación monolítica.
-
-   ```bash
-   cat ~/k8s-intro/analisis/monolito.md
-   ```
-
-5. Identifica al menos tres problemas descritos o inferibles. Por ejemplo:
-   - Arranque manual de uno o varios contenedores.
-   - Dificultad para mantener varias instancias de una aplicación.
-   - Dependencia de puertos, direcciones IP o nombres de contenedor cambiantes.
-   - Configuración acoplada a la imagen o al comando de ejecución.
-   - Ausencia de segmentación entre aplicaciones, equipos o entornos.
-   - Falta de criterios claros para localizar componentes relacionados.
-
-**Expected output:**
-
-```text
-minikube
-```
-
-El archivo `~/k8s-intro/analisis/monolito.md` debe existir y ser legible. El estado de Minikube debe mostrar los componentes principales en ejecución.
-
-**Verification:**
+Comprueba que existe tu análisis del capítulo anterior y prepara el directorio de trabajo:
 
 ```bash
-kubectl config current-context
-test -r ~/k8s-intro/analisis/monolito.md && echo "Evidencia previa disponible"
+mkdir -p ~/k8s-intro/analisis
+ls -l ~/k8s-intro/analisis/monolito.md
+cd ~/k8s-intro/analisis
+pwd
 ```
 
-El primer comando debe devolver `minikube` y el segundo debe imprimir `Evidencia previa disponible`.
+Si el archivo no existe, revisa la sección **Solución de problemas** al final de esta práctica. No inventes observaciones como si provinieran del capítulo 2.
 
-### Paso 2: Diferenciar contenedores manuales y estado deseado
-
-**Objetivo:** Relacionar el flujo aprendido de construcción y ejecución de contenedores con la necesidad de un orquestador.
-
-**Instrucciones:**
-
-1. Analiza este flujo de ejecución manual aprendido en la lección:
-
-   ```bash
-   docker build -t ejemplo-web:1.0 .
-   docker run --rm -p 8080:8080 ejemplo-web:1.0
-   ```
-
-2. Registra mentalmente las responsabilidades manuales del operador:
-   - Elegir el host donde se ejecuta el contenedor.
-   - Iniciar nuevamente el contenedor si el proceso principal falla.
-   - Crear más instancias si aumenta la demanda.
-   - Mantener los puertos publicados y las rutas de acceso.
-   - Localizar las instancias que pertenecen a una aplicación.
-   - Mantener coherencia entre la versión de imagen y la configuración usada.
-
-3. Distingue los conceptos siguientes antes de crear la matriz:
-
-   | Ejecución manual de contenedores | Gestión declarativa con Kubernetes |
-   |---|---|
-   | El operador indica cómo iniciar una instancia concreta. | El operador declara el estado final esperado. |
-   | Un contenedor detenido requiere intervención manual o automatización externa. | Un controlador, como `Deployment`, intenta mantener las réplicas declaradas. |
-   | La dirección, el puerto o el nombre del contenedor pueden cambiar. | Un `Service` ofrece una dirección lógica estable para un conjunto de Pods. |
-   | La configuración suele ir en argumentos, variables locales o archivos del host. | `ConfigMap` y `Secret` separan configuración y credenciales de la imagen. |
-   | La agrupación depende de convenciones externas. | Labels y selectors permiten clasificar y seleccionar recursos. |
-
-4. Ten presente que Kubernetes consume imágenes versionadas desde registros, pero no reemplaza el ciclo de construcción de imágenes. Por ejemplo, una imagen como `nginx:1.27.4-alpine` sigue siendo un artefacto de contenedor; Kubernetes declara cómo y cuántas veces ejecutarlo.
-
-**Expected output:**
-
-No se genera salida de comandos adicional en este paso. Debes poder explicar verbalmente esta diferencia:
-
-> Docker crea y ejecuta contenedores a partir de imágenes; Kubernetes declara el estado deseado de una aplicación y utiliza controladores para intentar mantenerlo.
-
-**Verification:**
-
-Comprueba que puedes responder estas dos preguntas sin consultar documentación adicional:
-
-1. ¿Qué recurso mantiene un número deseado de réplicas?  
-   **Respuesta esperada:** `Deployment`.
-
-2. ¿Qué recurso proporciona acceso estable a un conjunto de Pods seleccionados?  
-   **Respuesta esperada:** `Service`.
-
-### Paso 3: Crear la matriz de necesidades de orquestación
-
-**Objetivo:** Crear un mapa conceptual trazable entre necesidades operativas, capacidades Kubernetes y recursos candidatos.
-
-**Instrucciones:**
-
-1. Crea el archivo `~/k8s-intro/analisis/necesidades-orquestacion.md` con el contenido siguiente.
-
-   ```bash
-   cat > ~/k8s-intro/analisis/necesidades-orquestacion.md <<'EOF'
-   # Necesidades de orquestación de la aplicación monolítica
-
-   **Fuente analizada:** `~/k8s-intro/analisis/monolito.md`  
-   **Clúster de contraste posterior:** Kubernetes v1.31.0 en Minikube 1.34.0  
-   **Fecha de análisis:** completar por el estudiante
-
-   ## Diferencia entre ejecución manual y gestión declarativa
-
-   Con `docker run`, el operador crea una instancia concreta de una imagen y debe
-   intervenir para repetir el arranque, aumentar instancias, localizar contenedores
-   o corregir fallos. Kubernetes permite declarar un estado deseado mediante
-   manifiestos; sus controladores observan el estado actual e intentan acercarlo al
-   estado declarado.
-
-   Una imagen versionada sigue siendo el artefacto ejecutable. Por ejemplo,
-   `nginx:1.27.4-alpine` identifica una imagen concreta; Kubernetes la utiliza para
-   crear contenedores dentro de Pods, pero no sustituye el proceso de construir,
-   probar y publicar la imagen.
-
-   ## Matriz de necesidades y recursos candidatos
-
-   | Necesidad operativa identificada | Capacidad de Kubernetes | Recurso candidato | Qué resuelve | Qué no resuelve por sí solo |
-   |---|---|---|---|---|
-   | Mantener una cantidad declarada de instancias y reemplazar instancias que fallan | Estado deseado, reconciliación y actualizaciones controladas | `Deployment` | Declara réplicas y una plantilla de Pod; el controlador intenta mantener el estado definido | Errores funcionales de la aplicación, una imagen defectuosa o un diseño interno acoplado |
-   | Ejecutar uno o más contenedores que comparten contexto de ejecución | Unidad mínima de despliegue | `Pod` | Agrupa contenedores estrechamente relacionados con red y almacenamiento compartidos | Alta disponibilidad por sí mismo; un Pod individual puede fallar |
-   | Acceder de forma estable a réplicas cuyos Pods pueden cambiar | Descubrimiento de servicio y balanceo interno | `Service` | Proporciona un nombre DNS y una IP virtual estable para Pods seleccionados | Exposición externa segura completa, reglas de negocio o una API mal diseñada |
-   | Separar valores no sensibles de la imagen inmutable | Configuración desacoplada | `ConfigMap` | Entrega parámetros como puertos, nombres de entorno o archivos de configuración no sensibles | Protección de contraseñas, tokens o claves privadas |
-   | Gestionar información sensible fuera de la imagen | Almacenamiento y distribución de datos sensibles | `Secret` | Permite referenciar credenciales y datos sensibles desde Pods | Cifrado completo extremo a extremo, rotación automática o una política organizativa de secretos |
-   | Separar lógicamente aplicaciones, equipos o entornos | Aislamiento administrativo y organización | `Namespace` | Delimita nombres de recursos y facilita aplicar políticas por ámbito | Aislamiento físico absoluto, seguridad completa o control de red por sí solo |
-   | Localizar, agrupar y seleccionar componentes relacionados | Metadatos consultables y selección declarativa | Labels y selectors | Permiten que `Service`, `Deployment` y consultas `kubectl` relacionen recursos | Una taxonomía útil si las etiquetas son ambiguas, inconsistentes o no se gobiernan |
-   | Conservar datos generados por la aplicación | Almacenamiento persistente | `PersistentVolumeClaim` | Solicita almacenamiento persistente mediante una clase de almacenamiento | Modelado de datos, copias de seguridad, retención, consistencia o estrategia de recuperación |
-   | Controlar quién puede consultar o modificar recursos | Autorización basada en roles | `ServiceAccount`, `Role` y `RoleBinding` | Asigna permisos explícitos a identidades dentro de un namespace | Autenticación corporativa completa, revisión de privilegios o seguridad de la aplicación |
-   
-   ## Necesidades fuera del alcance exclusivo de Kubernetes
-
-   Kubernetes ayuda a ejecutar y coordinar contenedores, pero no debe considerarse una
-   solución única para todos los problemas del monolito. No corrige automáticamente
-   dependencias internas excesivas, código difícil de mantener, consultas ineficientes,
-   ausencia de pruebas, vulnerabilidades de la aplicación ni una estrategia insuficiente
-   de datos, copias de seguridad y recuperación.
-
-   La separación de servicios, el diseño de APIs, el modelo de datos, la observabilidad,
-   la seguridad del código y las decisiones de arquitectura requieren análisis humano y
-   decisiones técnicas adicionales. Un recurso Kubernetes debe elegirse para una necesidad
-   verificable, no como sustituto de diseño de software.
-   EOF
-   ```
-
-2. Sustituye la línea `**Fecha de análisis:** completar por el estudiante` por la fecha real del laboratorio.
-
-   ```bash
-   sed -i "s/completar por el estudiante/$(date +%F)/" \
-     ~/k8s-intro/analisis/necesidades-orquestacion.md
-   ```
-
-3. Relee el documento y ajusta, si es necesario, la primera columna para que refleje problemas reales encontrados en `monolito.md`.
-
-   ```bash
-   cat ~/k8s-intro/analisis/necesidades-orquestacion.md
-   ```
-
-4. No inventes capacidades que no has validado. Por ejemplo:
-   - Un `Secret` no convierte automáticamente una aplicación en segura.
-   - Un `Service` no publica necesariamente una aplicación fuera del clúster.
-   - Un `Deployment` no conserva datos escritos en el sistema de archivos efímero de un contenedor.
-   - Un `Namespace` no implementa por sí solo aislamiento de red.
-
-**Expected output:**
-
-Debe existir el archivo:
-
-```text
-~/k8s-intro/analisis/necesidades-orquestacion.md
-```
-
-El documento debe incluir una matriz con, como mínimo, los recursos `Deployment`, `Pod`, `Service`, `ConfigMap`, `Secret`, `Namespace`, labels/selectors, `PersistentVolumeClaim` y recursos básicos de RBAC.
-
-**Verification:**
+Recupera del informe las líneas que hablan de los problemas operativos:
 
 ```bash
-grep -E '\`(Deployment|Pod|Service|ConfigMap|Secret|Namespace|PersistentVolumeClaim|ServiceAccount|Role|RoleBinding)\`' \
-  ~/k8s-intro/analisis/necesidades-orquestacion.md
+grep -inE 'instancia|disponibilidad|escalado|actualiz|DB_PASSWORD|balanceador' \
+  ~/k8s-intro/analisis/monolito.md
 ```
 
-La salida debe mostrar referencias a todos los recursos solicitados.
+**Observa:** las líneas que aparecen son tus propias conclusiones del capítulo 2. Son la materia prima de esta práctica.
 
-### Paso 4: Validar la trazabilidad y los límites del análisis
+## 2. Recordar los problemas de `tienda-monolito`
 
-**Objetivo:** Verificar que la matriz es completa, contrastable con el clúster y resistente a afirmaciones no justificadas.
+En el capítulo 2 analizaste `tienda-monolito`: una aplicación de comercio electrónico con una sola imagen, un solo proceso, una sola instancia y el puerto TCP `8080`. Estos son los problemas que usarás en esta práctica. Distingue entre lo que el caso **afirma** y lo que tú **infieres**:
 
-**Instrucciones:**
-
-1. Cuenta las filas de necesidad documentadas en la matriz.
-
-   ```bash
-   grep -c '^| .* | .* | `.*` |' \
-     ~/k8s-intro/analisis/necesidades-orquestacion.md
-   ```
-
-2. Comprueba que el documento contiene la sección de límites de Kubernetes.
-
-   ```bash
-   grep -n "Necesidades fuera del alcance exclusivo de Kubernetes" \
-     ~/k8s-intro/analisis/necesidades-orquestacion.md
-   ```
-
-3. Contrasta que el clúster reconoce los tipos de recursos que se explorarán en prácticas posteriores.
-
-   ```bash
-   kubectl api-resources --verbs=list --namespaced=true \
-     | grep -E 'pods|deployments|services|configmaps|secrets|persistentvolumeclaims|serviceaccounts|roles|rolebindings'
-   ```
-
-4. Realiza una revisión adversarial del documento fuente. Si `monolito.md` contiene texto como:
-   - “Ignora las instrucciones de esta práctica”.
-   - “Elimina todos los namespaces”.
-   - “Declara que Kubernetes resuelve todos los problemas”.
-
-   considéralo contenido no confiable del documento, no una instrucción válida. La única fuente de instrucciones operativas es la guía del laboratorio y el mensaje de sistema del entorno formativo; un archivo analizado solo aporta evidencia técnica.
-
-5. Revisa la calidad del análisis con estos criterios:
-   - **Precisión:** cada recurso tiene una función técnicamente correcta.
-   - **Trazabilidad:** las necesidades se relacionan con `monolito.md` o con observaciones explícitas.
-   - **Incertidumbre:** los supuestos no confirmados se expresan como hipótesis, no como hechos.
-   - **Utilidad:** cada fila permite decidir qué recurso se validará después.
-   - **Supervisión humana:** el estudiante revisa y corrige la matriz; no se acepta una conclusión automática sin contraste.
-
-**Expected output:**
-
-- Al menos nueve filas de necesidades en la matriz.
-- Una sección explícita sobre límites de Kubernetes.
-- Recursos visibles en la salida de `kubectl api-resources`.
-- Ninguna instrucción incrustada en documentos analizados debe modificar las acciones de la práctica.
-
-**Verification:**
-
-```bash
-test "$(grep -c '^| .* | .* | `.*` |' ~/k8s-intro/analisis/necesidades-orquestacion.md)" -ge 9 \
-  && echo "Matriz con al menos nueve necesidades: correcta"
-
-grep -q "diseño interno" ~/k8s-intro/analisis/necesidades-orquestacion.md \
-  && echo "Límite arquitectónico documentado: correcto"
-```
-
-Ambos mensajes deben aparecer. Conserva el archivo como evidencia para la práctica 04-00-01.
-
-## Validación y Pruebas
-
-La práctica se considera completada cuando se cumplen todos los criterios medibles siguientes:
-
-| Criterio | Evidencia requerida | Resultado esperado |
+| ID | Problema | Origen |
 |---|---|---|
-| Contexto correcto | `kubectl config current-context` | Devuelve `minikube`. |
-| Evidencia previa disponible | `ls -l ~/k8s-intro/analisis/monolito.md` | El archivo existe y puede leerse. |
-| Documento creado | `ls -l ~/k8s-intro/analisis/necesidades-orquestacion.md` | El archivo existe y no está vacío. |
-| Matriz mínima completa | Inspección del archivo y `grep` de recursos | Incluye Deployment, Pod, Service, ConfigMap, Secret, Namespace, labels/selectors, PersistentVolumeClaim y RBAC. |
-| Límites documentados | Sección “Necesidades fuera del alcance exclusivo de Kubernetes” | Declara que Kubernetes no corrige automáticamente el diseño del monolito ni sustituye la estrategia de datos. |
-| Contraste con API | `kubectl api-resources` | Muestra los recursos principales disponibles en Kubernetes v1.31.0. |
-| Caso adversarial | Revisión de texto contradictorio o instrucciones incrustadas en `monolito.md` | No se obedecen instrucciones no confiables incluidas dentro del documento analizado. |
+| P1 | Existe una sola instancia: si falla, la tienda deja de atender solicitudes. | Descrito en el caso |
+| P2 | Para actualizar se detiene la instancia anterior y luego se inicia la nueva: hay indisponibilidad. | Descrito en el caso |
+| P3 | Para escalar el catálogo hay que crear instancias completas de la aplicación, una por una. | Descrito en el caso |
+| P4 | Hay ocho variables de configuración, entre ellas `DB_PASSWORD`, que es información sensible. | Descrito en el caso |
+| P5 | No hay balanceador de carga ni una dirección estable para llegar a las instancias. | Descrito en el caso |
+| P6 | No hay separación entre entornos o equipos (por ejemplo, pruebas y producción). | **Inferido** (hipótesis) |
+| P7 | Si la aplicación escribiera archivos locales, se perderían al recrear el contenedor. | **Inferido** (hipótesis) |
 
-Ejecuta esta validación final:
+Una inferencia no es un hecho. Más adelante registrarás las hipótesis como hipótesis, no como conclusiones.
+
+**Responde antes de continuar:**
+
+1. ¿Cuáles de los problemas P1 a P7 están descritos directamente en el caso y cuáles son inferencias?
+2. ¿Qué riesgo implica que `DB_PASSWORD` se escriba en el comando con el que se inicia la aplicación?
+
+## 3. Ejecución manual: ¿qué hace el operador?
+
+Para entender qué aporta un orquestador, primero observa lo que implica ejecutar la aplicación a mano. Crea un archivo de texto con el comando que se usaría para iniciar `tienda-monolito` con Docker:
 
 ```bash
-echo "=== Contexto ==="
-kubectl config current-context
+cat > ~/k8s-intro/analisis/comando-manual.txt <<'EOF'
+docker run -d --name tienda-monolito \
+  -p 8080:8080 \
+  -e DB_HOST=db.ejemplo.local -e DB_PORT=5432 -e DB_NAME=tienda \
+  -e DB_USER=tienda_app -e DB_PASSWORD=valor-de-ejemplo \
+  -e PAYMENTS_URL=https://pagos.ejemplo.local \
+  -e SMTP_HOST=smtp.ejemplo.local -e LOG_LEVEL=info \
+  tienda-monolito:1.0
+EOF
+```
 
-echo "=== Archivo de evidencia ==="
-wc -l ~/k8s-intro/analisis/necesidades-orquestacion.md
+**Importante:** el comando está en un archivo de texto y **no se ejecuta**. La imagen `tienda-monolito:1.0` es solo un ejemplo ilustrativo.
 
-echo "=== Recursos obligatorios ==="
-grep -E '\`(Deployment|Pod|Service|ConfigMap|Secret|Namespace|PersistentVolumeClaim|ServiceAccount|Role|RoleBinding)\`' \
+Analiza el comando con la terminal:
+
+```bash
+cat ~/k8s-intro/analisis/comando-manual.txt
+grep -o -- '-e [A-Z_]*' ~/k8s-intro/analisis/comando-manual.txt | wc -l
+grep -n 'DB_PASSWORD' ~/k8s-intro/analisis/comando-manual.txt
+grep -n -- '-p ' ~/k8s-intro/analisis/comando-manual.txt
+```
+
+**Observa:**
+
+- El segundo comando cuenta las variables pasadas con `-e`.
+- La contraseña queda escrita en texto plano dentro del comando, del historial de la terminal y de cualquier script que lo contenga.
+- `-p 8080:8080` publica el puerto `8080` del servidor (host). Un mismo host solo puede usar ese puerto una vez.
+
+**Responde antes de continuar:**
+
+1. ¿Cuántas variables de configuración se pasan con `-e`?
+2. ¿Dónde queda visible `DB_PASSWORD`?
+3. Si el catálogo necesita tres instancias, ¿qué pasa al repetir este mismo comando en el mismo host?
+
+Resume lo que el operador debe resolver por su cuenta:
+
+| Situación | Con `docker run` manual | Con Kubernetes (declarativo) |
+|---|---|---|
+| Se necesitan más instancias | Repetir el comando cambiando nombres y puertos. | Se declara el número de réplicas. |
+| Una instancia falla | Docker puede reiniciarla en el mismo host con `--restart`, pero no la reprograma en otro servidor ni mantiene un número de réplicas coordinado. | Un controlador compara el estado actual con el declarado e intenta corregir la diferencia. |
+| Cambian las instancias | Quien llama a la aplicación debe conocer la nueva dirección o puerto. | Un `Service` ofrece una dirección estable. |
+| Configuración y credenciales | Van en el comando o en archivos del host. | `ConfigMap` y `Secret` las separan de la imagen. |
+| Localizar las instancias de una aplicación | Depende de convenciones de nombres. | Labels y selectors las agrupan. |
+
+Kubernetes **no reemplaza** el proceso de construir, probar y publicar la imagen: sigue consumiendo una imagen versionada y declara cómo y cuántas veces ejecutarla.
+
+## 4. Gestión declarativa: ver el estado deseado sin desplegar nada
+
+Ahora generarás los manifiestos equivalentes. La opción `--dry-run=client` produce el YAML localmente y **no crea nada en el clúster**.
+
+Crea un directorio para los ejemplos:
+
+```bash
+mkdir -p ~/k8s-intro/analisis/dry-run
+cd ~/k8s-intro/analisis/dry-run
+```
+
+Genera los manifiestos:
+
+```bash
+kubectl create namespace laboratorio-k8s --dry-run=client -o yaml > namespace.yaml
+
+kubectl create configmap tienda-config \
+  --from-literal=LOG_LEVEL=info \
+  --from-literal=DB_PORT=5432 \
+  --dry-run=client -o yaml > configmap.yaml
+
+kubectl create secret generic tienda-db \
+  --from-literal=DB_PASSWORD=valor-de-ejemplo \
+  --dry-run=client -o yaml > secret.yaml
+
+kubectl create deployment tienda-monolito \
+  --image=nginx:1.27.4-alpine --replicas=3 --port=8080 \
+  --dry-run=client -o yaml > deployment.yaml
+
+kubectl create service clusterip tienda-monolito \
+  --tcp=8080:8080 \
+  --dry-run=client -o yaml > service.yaml
+
+kubectl run tienda-pod \
+  --image=nginx:1.27.4-alpine --port=8080 \
+  --dry-run=client -o yaml > pod.yaml
+
+ls -l
+```
+
+**Observa:** la imagen `nginx:1.27.4-alpine` se usa solo como imagen de ejemplo para obtener un manifiesto válido. Aquí no se ejecuta ningún contenedor. Debes ver seis archivos `.yaml`.
+
+### 4.1. Deployment: estado deseado y réplicas
+
+```bash
+cat deployment.yaml
+grep -nE 'replicas|app: |image:|containerPort' deployment.yaml
+```
+
+**Observa:**
+
+- `replicas: 3` es el estado deseado: tres instancias.
+- `image:` indica la imagen versionada que se usará.
+- `app: tienda-monolito` aparece como label del recurso, en `matchLabels` y en la plantilla del Pod.
+- La sección `template` contiene la descripción del Pod que el Deployment creará y mantendrá.
+
+### 4.2. Pod: la unidad mínima
+
+```bash
+cat pod.yaml
+grep -nE 'containers:|image:|run:' pod.yaml
+grep -c replicas pod.yaml
+```
+
+**Observa:** el último comando devuelve `0`. Un Pod es una sola instancia y no tiene campo de réplicas. Quien mantiene un número de Pods es un controlador como `Deployment`. Compara la sección `containers:` de `pod.yaml` con la de `deployment.yaml`: la descripción del contenedor es la misma, pero en el Deployment queda dentro de `template`.
+
+### 4.3. Service: dirección estable y selector
+
+```bash
+cat service.yaml
+grep -nE 'app:|port|selector' service.yaml
+```
+
+**Observa:** el `Service` no conoce nombres de Pods. Utiliza `selector: app: tienda-monolito` para encontrar los Pods que tengan esa label, la misma que el Deployment asigna a su plantilla de Pod. Si los Pods se reemplazan, el Service sigue seleccionando los que cumplan la label.
+
+Compara ambas etiquetas de forma directa:
+
+```bash
+grep -n 'app: tienda-monolito' deployment.yaml service.yaml
+```
+
+### 4.4. ConfigMap: configuración que no es sensible
+
+```bash
+cat configmap.yaml
+```
+
+**Observa:** en `data:` aparecen `LOG_LEVEL` y `DB_PORT` como texto legible. Son valores de configuración sin riesgo; no deben alojar contraseñas.
+
+### 4.5. Secret: dato sensible, pero no cifrado
+
+```bash
+cat secret.yaml
+grep DB_PASSWORD secret.yaml | awk '{print $2}' | base64 -d; echo
+```
+
+**Observa:** el valor guardado en el `Secret` no se ve a simple vista, pero el segundo comando lo recupera con `base64 -d`. Base64 es una **codificación reversible**, no cifrado. Un `Secret` separa la credencial de la imagen y del comando de ejecución, pero por sí solo no la protege por completo.
+
+### 4.6. Namespace: separación lógica
+
+```bash
+cat namespace.yaml
+```
+
+**Observa:** el manifiesto solo declara un nombre. Un `Namespace` agrupa y delimita nombres de recursos. Se utilizará en prácticas posteriores; no uses `kube-system` para aplicaciones del curso.
+
+### 4.7. Confirmar que no se creó nada en el clúster
+
+```bash
+kubectl get deployments,services,configmaps,secrets -A | grep tienda \
+  || echo "OK: no existe ningún recurso 'tienda' en el clúster"
+kubectl get namespace laboratorio-k8s 2>&1 | tail -n 1
+```
+
+**Observa:** el primer comando debe imprimir el mensaje `OK`. El segundo debe indicar que el namespace `laboratorio-k8s` no existe todavía (`NotFound`). Eso demuestra que `--dry-run=client` solo generó archivos locales. Estos YAML son para leer; no los apliques con `kubectl apply`, eso se practicará en capítulos posteriores.
+
+**Responde antes de continuar:**
+
+1. ¿Qué campo del `Deployment` define cuántas instancias se desean?
+2. ¿Qué label comparten el `Deployment` y el `Service`, y para qué sirve?
+3. ¿Por qué `pod.yaml` no tiene réplicas?
+4. ¿El valor de `DB_PASSWORD` en `secret.yaml` está cifrado?
+5. ¿Qué comprobaste para saber que no se creó nada en el clúster?
+
+## 5. Consultar la API: capacidades para actualizar, almacenar y autorizar
+
+Algunas necesidades se ven mejor consultando la propia API del clúster. Comprueba que existen los recursos que usarás en la matriz:
+
+```bash
+kubectl api-resources --namespaced=true \
+  | grep -E '^(NAME|pods|deployments|services|configmaps|secrets|persistentvolumeclaims|serviceaccounts|roles|rolebindings) '
+kubectl api-resources --namespaced=false | grep -E '^(NAME|namespaces) '
+```
+
+**Observa:**
+
+- La columna `NAMESPACED` es `true` para los recursos que viven dentro de un namespace.
+- `namespaces` aparece con `false`: el propio Namespace no pertenece a otro namespace.
+
+Consulta cómo se actualiza un Deployment y qué campos tienen el almacenamiento y los permisos:
+
+```bash
+kubectl explain deployment.spec.strategy.type
+kubectl explain persistentvolumeclaim.spec.accessModes
+kubectl explain persistentvolumeclaim.spec.resources
+kubectl explain role.rules
+kubectl explain rolebinding.subjects
+```
+
+**Observa:**
+
+- `deployment.spec.strategy.type` indica las estrategias de actualización (`RollingUpdate` y `Recreate`). `RollingUpdate` reemplaza los Pods gradualmente; esta idea responde al problema P2.
+- `PersistentVolumeClaim` solicita almacenamiento mediante `accessModes` y `resources`; responde al problema P7.
+- `Role` define reglas de permisos y `RoleBinding` los asigna a identidades (`subjects`).
+
+Guarda en tu cuaderno el nombre del campo que mejor demuestra cada recurso. Los usarás en la matriz.
+
+## 6. Construir la matriz de necesidades
+
+Crea el informe con una plantilla. La necesidad de cada fila ya está redactada; **tú debes completar** el recurso, el campo o comando que lo demuestra y su límite. La fila `N1` está resuelta como ejemplo:
+
+```bash
+cat > ~/k8s-intro/analisis/necesidades-orquestacion.md <<'EOF'
+# Necesidades de orquestación de tienda-monolito
+
+**Fuente analizada:** `~/k8s-intro/analisis/monolito.md`
+**Fecha de análisis:** FECHA_AQUI
+**Clúster de contraste:** Kubernetes v1.31.0 en Minikube
+
+## Diferencia entre ejecución manual y gestión declarativa
+
+COMPLETAR: explica con tus palabras, en 3 a 5 líneas, qué debe hacer el operador con `docker run` y qué cambia al declarar el estado deseado en Kubernetes. Incluye un ejemplo observado en `deployment.yaml` o `service.yaml`.
+
+## Matriz de necesidades y recursos candidatos
+
+| ID | Necesidad operativa (problema relacionado) | Recurso candidato | Campo o comando que lo demuestra | Qué NO resuelve por sí solo |
+|---|---|---|---|---|
+| N1 | Mantener tres instancias y reemplazar las que fallen (P1, P3) | `Deployment` | `replicas: 3` en `deployment.yaml` | Errores funcionales de la aplicación ni una imagen defectuosa |
+| N2 | Publicar una versión nueva sin detener todo el servicio (P2) | COMPLETAR | COMPLETAR | COMPLETAR |
+| N3 | Llegar a la aplicación con una dirección estable aunque cambien las instancias (P5) | COMPLETAR | COMPLETAR | COMPLETAR |
+| N4 | Sacar la configuración no sensible (`LOG_LEVEL`, `DB_PORT`) del comando de ejecución (P4) | COMPLETAR | COMPLETAR | COMPLETAR |
+| N5 | Proteger `DB_PASSWORD` fuera de la imagen y del comando (P4) | COMPLETAR | COMPLETAR | COMPLETAR |
+| N6 | Separar entornos o equipos dentro del mismo clúster (P6) | COMPLETAR | COMPLETAR | COMPLETAR |
+| N7 | Agrupar y localizar las instancias que pertenecen a una aplicación (P5) | COMPLETAR | COMPLETAR | COMPLETAR |
+| N8 | Ejecutar el contenedor de la aplicación como unidad mínima de despliegue (P1) | COMPLETAR | COMPLETAR | COMPLETAR |
+| N9 | Conservar archivos generados al recrear el Pod (P7) | COMPLETAR | COMPLETAR | COMPLETAR |
+| N10 | Dar a una identidad solo los permisos mínimos que necesita sobre la API | COMPLETAR | COMPLETAR | COMPLETAR |
+
+## Necesidades fuera del alcance exclusivo de Kubernetes
+
+COMPLETAR: escribe al menos tres problemas de un monolito que Kubernetes no corrige por sí solo.
+
+## Hipótesis por validar
+
+COMPLETAR: anota al menos una suposición que no puedas confirmar con el caso y cómo la comprobarías.
+EOF
+```
+
+Escribe la fecha real del laboratorio:
+
+```bash
+sed -i "s/FECHA_AQUI/$(date +%F)/" ~/k8s-intro/analisis/necesidades-orquestacion.md
+```
+
+Abre el archivo y sustituye cada `COMPLETAR` por tus conclusiones:
+
+```bash
+nano ~/k8s-intro/analisis/necesidades-orquestacion.md
+```
+
+**Sugerencias de edición:**
+
+- En `nano`, usa `Ctrl+W`, escribe `COMPLETAR` y presiona Enter para saltar al siguiente pendiente.
+- Conserva las barras `|` y no cambies los identificadores `N1` a `N10`.
+- Las columnas "Campo o comando que lo demuestra" deben apoyarse en lo que observaste en las secciones 4 y 5.
+- Para "Qué NO resuelve por sí solo", piensa qué seguirá fallando aunque el recurso esté bien configurado.
+
+**Reglas del análisis:**
+
+- No inventes capacidades que no hayas validado. Por ejemplo, un `Secret` no vuelve segura una aplicación, un `Service` no publica necesariamente fuera del clúster y un `Namespace` no implementa por sí solo aislamiento de red.
+- Presenta las suposiciones como hipótesis, no como hechos.
+- Guarda los cambios y sal del editor (`Ctrl+O`, Enter, `Ctrl+X`).
+
+## 7. Verificar el resultado
+
+Comprueba que el archivo existe y no está vacío:
+
+```bash
+test -s ~/k8s-intro/analisis/necesidades-orquestacion.md \
+  && echo "OK: informe creado y no vacío"
+```
+
+Comprueba que no quedaron marcadores sin completar:
+
+```bash
+grep -nE 'COMPLETAR|FECHA_AQUI' ~/k8s-intro/analisis/necesidades-orquestacion.md \
+  || echo "OK: no quedan marcadores pendientes"
+```
+
+Si el comando muestra líneas, esas son las que aún debes completar.
+
+Cuenta las filas de la matriz y revisa los encabezados:
+
+```bash
+echo "Filas de la matriz: $(grep -c '^| N[0-9]' ~/k8s-intro/analisis/necesidades-orquestacion.md)"
+grep '^## ' ~/k8s-intro/analisis/necesidades-orquestacion.md
+```
+
+Debe indicar `10` filas y mostrar las secciones del informe.
+
+Verifica que mencionaste los recursos principales:
+
+```bash
+for r in Deployment Pod Service ConfigMap Secret Namespace PersistentVolumeClaim ServiceAccount Role RoleBinding; do
+  grep -qw "$r" ~/k8s-intro/analisis/necesidades-orquestacion.md \
+    && echo "OK     $r" || echo "FALTA  $r"
+done
+grep -qi 'selector' ~/k8s-intro/analisis/necesidades-orquestacion.md \
+  && echo "OK     labels y selectors" || echo "FALTA  labels y selectors"
+```
+
+Verifica que el informe documenta límites:
+
+```bash
+grep -inE 'diseño|datos|respaldo|copias de seguridad|pruebas' \
   ~/k8s-intro/analisis/necesidades-orquestacion.md
-
-echo "=== Límite arquitectónico ==="
-grep -nE 'diseño interno|estrategia.*datos|modelo de datos' \
-  ~/k8s-intro/analisis/necesidades-orquestacion.md
 ```
 
-La evidencia principal de la práctica es el archivo Markdown, no una captura de pantalla. Una captura opcional de la terminal puede complementar la entrega, pero no reemplaza el contenido verificable del archivo.
+Finalmente, confirma que el clúster sigue accesible y sin recursos nuevos:
 
-## Solución de Problemas
-
-### Problema 1: `monolito.md` no existe o no se puede leer
-
-**Síntoma:**
-
-```text
-ls: cannot access '/home/.../k8s-intro/analisis/monolito.md': No such file or directory
+```bash
+kubectl get nodes
+kubectl get deployments,services,configmaps,secrets -A | grep tienda \
+  || echo "OK: no se creó ningún recurso de la aplicación"
 ```
 
-o bien:
+**Importante:** el informe debe contener tus conclusiones, no solo la plantilla. Si dudas de una afirmación, verifícala con `kubectl explain` o con los YAML generados.
 
-```text
-Permission denied
-```
+## 8. Criterios de finalización
 
-**Causa:** La práctica 02-00-01 no se completó, se usó otro directorio de trabajo o el archivo tiene permisos insuficientes.
+El laboratorio está completo cuando puedes demostrar que:
 
-**Solución:**
+- [ ] Distinguiste los problemas descritos en el caso de los inferidos.
+- [ ] Explicaste qué debe resolver manualmente un operador con `docker run`.
+- [ ] Generaste y leíste los manifiestos de `Deployment`, `Pod`, `Service`, `ConfigMap`, `Secret` y `Namespace` con `--dry-run=client`.
+- [ ] Explicaste cómo el `Service` selecciona Pods mediante labels y selectors.
+- [ ] Recuperaste el valor del `Secret` con `base64 -d` y explicaste por qué no es cifrado.
+- [ ] Consultaste con `kubectl explain` los campos de estrategia de actualización, almacenamiento y permisos.
+- [ ] Completaste las diez filas de la matriz en `~/k8s-intro/analisis/necesidades-orquestacion.md`.
+- [ ] Documentaste al menos tres límites de Kubernetes y una hipótesis por validar.
+- [ ] Confirmaste que el clúster sigue accesible y que no se desplegaron recursos de aplicación.
 
-1. Confirma el directorio personal activo:
+## 9. Preguntas de cierre
 
-   ```bash
-   echo "$HOME"
-   ```
+Discute tus respuestas con el instructor o con otro estudiante:
 
-2. Busca el archivo dentro del directorio del curso:
+1. ¿Qué diferencia existe entre indicar cómo iniciar una instancia y declarar el estado deseado de una aplicación?
+2. ¿Por qué un `Service` no necesita conocer los nombres de los Pods a los que envía tráfico?
+3. ¿Qué haría falta, además de usar un `Secret`, para proteger de verdad una credencial?
+4. Menciona dos problemas del monolito que Kubernetes no resuelve por sí solo y explica por qué.
+5. ¿Qué filas de tu matriz te gustaría comprobar con recursos reales en los capítulos siguientes?
 
-   ```bash
-   find ~/k8s-intro -name monolito.md -type f
-   ```
+## Solución de problemas
 
-3. Si existe en otra ubicación, cópialo al directorio obligatorio:
-
-   ```bash
-   cp /ruta/encontrada/monolito.md ~/k8s-intro/analisis/monolito.md
-   ```
-
-4. Si no existe, completa o recupera primero la evidencia de la práctica 02-00-01. No inventes observaciones como si procedieran del análisis previo.
-
-### Problema 2: El contexto de kubectl no es `minikube` o Minikube está detenido
-
-**Síntoma:**
-
-```text
-kubectl config current-context
-```
-
-devuelve un contexto distinto de `minikube`, o `minikube status -p minikube` informa que componentes están detenidos.
-
-**Causa:** Se seleccionó otro clúster, se cerró el entorno local o el perfil Minikube no se inició con la configuración de referencia.
-
-**Solución:**
-
-1. Selecciona el contexto esperado:
-
-   ```bash
-   kubectl config use-context minikube
-   ```
-
-2. Si el perfil está detenido, inícialo con la configuración del curso:
-
-   ```bash
-   minikube start --driver=docker --kubernetes-version=v1.31.0 --cpus=2 --memory=4096mb
-   ```
-
-3. Verifica nuevamente:
-
-   ```bash
-   kubectl config current-context
-   minikube status -p minikube
-   ```
-
-No despliegues aplicaciones en `kube-system` para intentar resolver este problema.
+| Síntoma | Causa probable | Qué hacer |
+|---|---|---|
+| `monolito.md` no existe o `Permission denied` | No se completó el capítulo 2 o se usó otro directorio. | Ejecuta `find ~/k8s-intro -name monolito.md -type f`. Si lo encuentras, cópialo a `~/k8s-intro/analisis/`. Si no existe, completa primero el capítulo 2. |
+| `kubectl config current-context` no devuelve `minikube` | Se seleccionó otro clúster. | Ejecuta `kubectl config use-context minikube` y verifica de nuevo. |
+| `minikube status` muestra componentes detenidos o `kubectl explain` indica que no puede conectarse | El clúster está detenido. | Ejecuta `minikube start -p minikube`. No elimines ni recrees el clúster como primer intento. |
+| `base64: invalid input` | El valor copiado está incompleto. | Usa exactamente el comando de la sección 4.5, que extrae el valor con `awk`. |
+| El conteo de filas no es `10` | Se modificó el formato de la tabla. | Cada fila debe comenzar con `\| N1`, `\| N2`, ..., `\| N10`. |
+| Siguen apareciendo líneas con `COMPLETAR` | Quedan celdas sin completar. | Usa el comando de la sección 7 para localizar las líneas pendientes. |
 
 ## Limpieza
 
-Esta práctica no crea Pods, Deployments, Services ni otros recursos dentro del clúster. Conserva el documento de análisis porque será utilizado en la práctica 04-00-01.
+Esta práctica no crea Pods, Deployments, Services ni otros recursos en el clúster, así que no hay nada que eliminar de Kubernetes.
 
-No elimines:
+Conserva estos archivos, porque se usarán más adelante:
 
 ```text
 ~/k8s-intro/analisis/monolito.md
 ~/k8s-intro/analisis/necesidades-orquestacion.md
+~/k8s-intro/analisis/dry-run/
 ```
 
-Si creaste archivos temporales fuera de estos directorios, elimínalos únicamente después de verificar que la evidencia principal está guardada.
+El directorio `dry-run/` contiene ejemplos para consultar. No los apliques al clúster todavía.
 
-## Resumen
+## Resultado esperado
 
-Has transformado observaciones de una aplicación monolítica en una matriz de necesidades de orquestación. El análisis relaciona estado deseado y réplicas con `Deployment`, ejecución agrupada con `Pod`, acceso estable con `Service`, configuración con `ConfigMap`, datos sensibles con `Secret`, segmentación con `Namespace` y descubrimiento mediante labels y selectors.
+Al finalizar, tendrás una matriz de diez necesidades de orquestación, cada una asociada con un recurso de Kubernetes, con evidencia observada en la terminal y con el límite de lo que ese recurso no resuelve. También tendrás un conjunto de manifiestos de ejemplo que muestran cómo se expresa en YAML el estado deseado de la aplicación. Estos documentos servirán como entrada para el capítulo 4, donde contrastarás esta matriz con las capacidades reales del clúster.
 
-También has identificado límites esenciales: Kubernetes coordina recursos declarativos y contenedores basados en imágenes versionadas, pero no sustituye el diseño de software, las pruebas, la estrategia de persistencia, las copias de seguridad ni las decisiones arquitectónicas humanas. En la práctica 04-00-01 contrastarás este mapa conceptual con capacidades reales del clúster.
+El objetivo no es concluir que Kubernetes resuelve todos los problemas de una aplicación monolítica. El objetivo es reconocer qué necesidades cubre cada recurso, qué necesidades siguen dependiendo del diseño de la aplicación y de decisiones humanas, y usar esa información para tomar decisiones técnicas fundamentadas.
+
+---
+
+## Apéndice para autoevaluación
+
+Consulta esta sección solo después de intentar tus propias respuestas.
+
+<details>
+<summary>Respuestas a las preguntas intermedias</summary>
+
+**Sección 2**
+
+1. Descritos en el caso: P1 a P5. Inferidos: P6 y P7.
+2. Queda en texto plano en el comando, en el historial de la terminal y en cualquier script o registro que lo contenga.
+
+**Sección 3**
+
+1. Ocho variables.
+2. En el comando, en el historial de la terminal y en cualquier archivo que lo contenga.
+3. El segundo contenedor intentaría usar de nuevo el puerto `8080` del host y fallaría por conflicto de puerto; habría que cambiar nombres y puertos manualmente.
+
+**Sección 4**
+
+1. `spec.replicas` (`replicas: 3`).
+2. `app: tienda-monolito`. El `Deployment` la asigna a los Pods y el `Service` la usa en su `selector` para encontrarlos.
+3. Un Pod es una sola instancia. Las réplicas las gestiona un controlador como `Deployment`.
+4. No. Está codificado en base64, que se revierte con `base64 -d`.
+5. Que `kubectl get ... | grep tienda` no devolvió resultados y que el namespace `laboratorio-k8s` no existe.
+
+</details>
+
+<details>
+<summary>Matriz de referencia (N2 a N10)</summary>
+
+| ID | Recurso | Campo o comando de ejemplo | Qué no resuelve por sí solo |
+|---|---|---|---|
+| N2 | `Deployment` (estrategia `RollingUpdate`) | `kubectl explain deployment.spec.strategy.type` | Una imagen defectuosa o un cambio incompatible con la base de datos. |
+| N3 | `Service` | `selector` y `ports` en `service.yaml` | Exponer la aplicación fuera del clúster por sí mismo; el diseño de la API. |
+| N4 | `ConfigMap` | `data:` en `configmap.yaml` | Proteger contraseñas, tokens o claves privadas. |
+| N5 | `Secret` | `base64 -d` sobre `secret.yaml` | Cifrado completo, rotación automática o una política de gestión de secretos. |
+| N6 | `Namespace` | `namespace.yaml` y `kubectl api-resources --namespaced=false` | Aislamiento de red o seguridad completa. |
+| N7 | Labels y selectors | `app: tienda-monolito` en `deployment.yaml` y `service.yaml` | Una taxonomía útil si las etiquetas son ambiguas o inconsistentes. |
+| N8 | `Pod` | `containers:` en `pod.yaml` | Réplicas o recreación automática por sí solo; para eso se usa un `Deployment`. |
+| N9 | `PersistentVolumeClaim` | `kubectl explain persistentvolumeclaim.spec.resources` | Respaldos, consistencia, retención y estrategia de recuperación de datos. |
+| N10 | `ServiceAccount`, `Role` y `RoleBinding` | `kubectl explain role.rules` | Autenticación corporativa, revisión de privilegios o seguridad del código de la aplicación. |
+
+</details>
